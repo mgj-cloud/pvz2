@@ -46,6 +46,8 @@ function near(a: string, b: string) {
   return Math.abs(r - x) <= 1 && Math.abs(c - y) <= 1;
 }
 function boostAt(board: Board, target: string) {
+  const targetPlant = board[target];
+  if (!targetPlant || (targetPlant.type !== "doom" && targetPlant.type !== "snake")) return 0;
   let boost = 0;
   for (const [cell, plant] of Object.entries(board)) {
     if (plant.type === "coin" && near(cell, target)) boost = Math.max(boost, .2);
@@ -151,6 +153,7 @@ export default function Home() {
   const [board, setBoard] = useState<Board>(initialBoard), [tiles, setTiles] = useState<Set<string>>(initialTiles);
   const [tool, setTool] = useState<ToolId>("doom"), [doomSize, setDoomSize] = useState<DoomSize>("large");
   const [selected, setSelected] = useState("2-7"), [feedAt, setFeedAt] = useState(2675);
+  const [dragging, setDragging] = useState<string | null>(null);
   const [feeds, setFeeds] = useState<Feed[]>([{ id: 1, at: 2675, cell: "2-7" }]);
   const [filter, setFilter] = useState<Lane | "全部">("全部");
   const events = useMemo(() => simulate(board, tiles, feeds, map, strategy), [board, tiles, feeds, map, strategy]);
@@ -166,6 +169,18 @@ export default function Home() {
       return setTiles(old => { const next = new Set(old); next.delete(cell); return next; });
     }
     setBoard(old => ({ ...old, [cell]: { type: tool, ...(tool === "doom" ? { doomSize } : {}) } }));
+  };
+  const movePlant = (target: string) => {
+    if (!dragging || dragging === target || !board[dragging]) return setDragging(null);
+    setBoard(old => {
+      const next = { ...old }, sourcePlant = old[dragging], targetPlant = old[target];
+      next[target] = sourcePlant;
+      if (targetPlant) next[dragging] = targetPlant;
+      else delete next[dragging];
+      return next;
+    });
+    setSelected(target);
+    setDragging(null);
   };
   const addFeed = useCallback((cell = selected, at = feedAt) => {
     const plant = board[cell];
@@ -210,7 +225,7 @@ export default function Home() {
           <div><div className="col-nums">{[1,2,3,4,5,6,7,8,9].map(n => <span key={n}>{n}</span>)}</div><div className="game-grid">
             {Array.from({ length: 45 }, (_, i) => {
               const cell = keyOf(Math.floor(i / 9) + 1, i % 9 + 1), plant = board[cell], boost = plant ? boostAt(board, cell) : 0;
-              return <button key={cell} className={`cell ${tiles.has(cell) ? "tiled" : ""} ${selected === cell ? "selected" : ""}`} onClick={() => useCell(cell)} aria-label={`${cell} ${plant ? plants[plant.type].name : "空格"}`}>
+              return <button key={cell} className={`cell ${tiles.has(cell) ? "tiled" : ""} ${selected === cell ? "selected" : ""} ${dragging === cell ? "dragging" : ""}`} onClick={() => useCell(cell)} draggable={!!plant} onDragStart={() => setDragging(cell)} onDragOver={e => e.preventDefault()} onDrop={() => movePlant(cell)} onDragEnd={() => setDragging(null)} aria-label={`${cell} ${plant ? plants[plant.type].name : "空格"}`}>
                 {tiles.has(cell) && <Zap className="tile-glyph" />}
                 {plant && <span className="plant" style={{ "--plant": plants[plant.type].color } as React.CSSProperties}><strong>{plants[plant.type].short}</strong>{plant.type === "doom" && <small>{plant.doomSize === "large" ? "大" : plant.doomSize === "medium" ? "中" : "小"}</small>}</span>}
                 {boost > 0 && <sup>+{boost * 100}%</sup>}
@@ -219,7 +234,7 @@ export default function Home() {
           </div></div>
           <div className="spawn">僵尸入口<FastForward /></div>
         </div>
-        <div className="palette"><p><MousePointer2 />点击工具，再点草坪</p><div className="tools">
+        <div className="palette"><p><MousePointer2 />点击工具再点草坪；拖动已有植物可移动或交换位置（瓷砖留在原格）</p><div className="tools">
           {(Object.keys(plants) as PlantId[]).map(id => <button key={id} className={tool === id ? "active" : ""} onClick={() => setTool(id)}><i style={{ background: plants[id].color }}>{plants[id].short}</i>{plants[id].name}</button>)}
           <button className={tool === "tile" ? "active" : ""} onClick={() => setTool("tile")}><i className="tile-tool"><Zap /></i>瓷砖</button>
           <button className={tool === "erase" ? "active" : ""} onClick={() => setTool("erase")}><i className="erase"><Eraser /></i>擦除</button>
@@ -233,6 +248,6 @@ export default function Home() {
         <div className="timeline" aria-live="polite">{shown.map((event, i) => <article className={`event ${event.tone}`} key={`${event.at}-${event.title}-${i}`}><time>{ms(event.at)}</time><i /><div><header><b>{event.title}</b><span>{event.lane}</span></header><p>{event.detail}</p><small className={event.confidence}>{event.confidence === "confirmed" ? "已确认数据" : "估算 · 待逐帧验证"}</small></div></article>)}</div>
       </aside>
     </div>
-    <footer><div><FlaskConical /><span><b>当前模型</b>球果 900ms 成阵 / 15s 持续；瓷砖 T=2000+200×欧氏距离。</span></div><div><Sparkles /><span><b>加速取最高</b>飞莲 3×3 +90%；铜钱草 3×3 +20%；心叶兰前方一格 +100%。</span></div><div><Info /><span><b>v0.1 边界</b>牛蒡命中时刻与非 100% 加速动画标为估算。</span></div></footer>
+    <footer><div><FlaskConical /><span><b>当前模型</b>球果 900ms 成阵 / 15s 持续；瓷砖 T=2000+200×欧氏距离。</span></div><div><Sparkles /><span><b>仅加速毁菇与蛇草</b>效果不叠加：飞莲 +90%；铜钱草 +20%；心叶兰 +100%。</span></div><div><Info /><span><b>v0.1 边界</b>牛蒡命中时刻与非 100% 加速动画标为估算。</span></div></footer>
   </main>;
 }
